@@ -1,6 +1,8 @@
 # NöbetCep public distribution
 
-Website: https://ipekbayrak.github.io/nobetcep/
+Website: https://ipekbayrak.com.tr/nobetcep/
+
+Public feed: https://ipekbayrak.github.io/nobetcep/data/v1
 
 The public site is under `public/nobetcep/`. The Google seller declaration is at `public/app-ads.txt`, served from the hostname root. The scheduler updates licensed İzmir and Kayseri municipal feeds every two hours and preserves failed providers' actual last-good timestamps.
 
