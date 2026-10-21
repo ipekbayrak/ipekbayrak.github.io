@@ -1,0 +1,43 @@
+name: NöbetCep public site and licensed feed
+on:
+  push:
+    branches: [main]
+    paths: ['public/**', 'backend/nobetcep/**', '.github/workflows/nobetcep-pages.yml']
+  schedule:
+    - cron: '15 */2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/nobetcep
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s tests -v
+      - name: Recover published snapshots
+        env:
+          PUBLIC_FEED_BASE: https://ipekbayrak.github.io/nobetcep/data/v1
+        run: python3 tools/recover_feed.py --output ../../public/nobetcep/data/v1
+      - run: python3 tools/refresh_feed.py --allow-partial --output ../../public/nobetcep/data/v1
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - name: Verify provider health after deployment
+        run: python3 -c 'import json; p=json.load(open("../../public/nobetcep/data/v1/status.json"))["providers"]; assert all(x["status"]=="ok" for x in p), p'
