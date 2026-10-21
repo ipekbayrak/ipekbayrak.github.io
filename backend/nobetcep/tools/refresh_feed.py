@@ -8,6 +8,8 @@ import os
 import re
 import sys
 import tempfile
+import time
+import urllib.error
 import unicodedata
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -139,11 +141,20 @@ def atomic_json(path: Path, value: dict) -> None:
 
 def fetch(code: str = "35") -> list:
     request = urllib.request.Request(SOURCES[code]["endpoint"], headers={"User-Agent": "NobetCep-Feed/1.0 (licensed open data)", "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = response.read(3_000_001)
-        if len(body) > 3_000_000:
-            raise ValueError("Unexpected response size")
-        return json.loads(body)
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                body = response.read(3_000_001)
+                if len(body) > 3_000_000:
+                    raise ValueError("Unexpected response size")
+                return json.loads(body)
+        except (urllib.error.URLError, TimeoutError) as error:
+            if isinstance(error, urllib.error.HTTPError) and error.code < 500 and error.code != 429:
+                raise
+            if attempt == 1:
+                raise
+            print(f"{code}: transient network error; retrying once", file=sys.stderr, flush=True)
+            time.sleep(2)
 
 def publish(output: Path, feed: dict) -> None:
     code = feed["provinceCode"]

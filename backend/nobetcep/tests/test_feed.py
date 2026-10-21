@@ -1,4 +1,6 @@
 import copy
+import io
+from unittest.mock import patch
 import importlib.util
 import json
 import tempfile
@@ -15,6 +17,12 @@ class FeedTests(unittest.TestCase):
     def setUp(self):
         self.rows = json.loads((ROOT / "tests/fixtures/izmir.json").read_text())
         self.now = datetime(2026, 10, 21, 9, tzinfo=timezone.utc)
+
+    def test_transient_timeout_retries_without_changing_source_records(self):
+        body = json.dumps(self.rows).encode()
+        with patch.object(module.urllib.request, 'urlopen', side_effect=[TimeoutError(), io.BytesIO(body)]) as request, patch.object(module.time, 'sleep'):
+            self.assertEqual(self.rows, module.fetch("35"))
+            self.assertEqual(2, request.call_count)
 
     def test_real_response_maps_coordinates_and_notes(self):
         feed = module.izmir(self.rows, self.now)
