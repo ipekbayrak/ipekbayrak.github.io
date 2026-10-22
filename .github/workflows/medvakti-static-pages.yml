@@ -1,0 +1,73 @@
+name: Publish MedVakti static pages safely
+on:
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: Currently published github-pages artifact run
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish-medvakti:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: published-base
+          run-id: ${{ inputs.base_run_id }}
+          github-token: ${{ github.token }}
+      - name: Preserve published files and overlay only MedVakti
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          from concurrent.futures import ThreadPoolExecutor
+          import tarfile, urllib.request, urllib.parse, hashlib, shutil, json
+          stage=Path('staged-site'); stage.mkdir()
+          with tarfile.open('published-base/artifact.tar') as archive:
+              archive.extractall(stage, filter='data')
+          files=[p for p in stage.rglob('*') if p.is_file() and p.relative_to(stage).parts[0]!='medvakti']
+          def check(path):
+              rel=path.relative_to(stage).as_posix()
+              if rel.startswith('.'): return rel, hashlib.sha256(path.read_bytes()).hexdigest()
+              request=urllib.request.Request('https://ipekbayrak.github.io/'+urllib.parse.quote(rel), headers={'Cache-Control':'no-cache'})
+              with urllib.request.urlopen(request, timeout=30) as response: live=response.read(len(path.read_bytes())+1)
+              if live!=path.read_bytes(): raise RuntimeError('Published non-MedVakti content changed; choose the current base artifact: '+rel)
+              return rel, hashlib.sha256(live).hexdigest()
+          with ThreadPoolExecutor(max_workers=6) as pool: before=dict(pool.map(check,files))
+          target=stage/'medvakti'
+          if target.exists(): shutil.rmtree(target)
+          shutil.copytree('public/medvakti',target)
+          policy=(target/'privacy.html').read_text()
+          assert 'ML Kit' in policy and 'Photo Picker' in policy
+          after={p.relative_to(stage).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+          assert before==after
+          Path('medvakti-static-proof.json').write_text(json.dumps({'nonMedVaktiFilesUnchanged':before},indent=2))
+          print('Only MedVakti files replaced; preserved',len(before),'published files byte-for-byte. No feed refresh performed.')
+          PYCODE
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: staged-site
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - uses: actions/upload-artifact@v4
+        with:
+          name: medvakti-static-proof
+          path: medvakti-static-proof.json
